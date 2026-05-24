@@ -10,7 +10,7 @@
 
 「この `description` は短すぎないか」「`USE FOR:` と `DO NOT USE FOR:` の境界が曖昧では」「Claude では発火するのに GPT-4o では別 skill が発火している。これ本当に普遍的に動くのか」「`SKILL.md` が長くなりすぎて、コンテキスト枠を圧迫していないか」── レビュアーが手作業で確認するしかなく、各レビュアーの判定基準も少しずつ違う。Skill 作者からしても、PR を出してから「やり直し」を食らうコストが大きい。
 
-これは個別レビュアーの厳格さの問題ではなく、構造的な問題である。`go test` も `cargo bench` も `pytest -k` も持たない状態で、本番コードと等価な品質のものを世に出そうとしているからだ。コードに対しては当然備わっている「テスト可能性」「ベンチマーク可能性」「lint 可能性」が、Skill 工程にはまだ揃っていない。
+これは個別レビュアーの厳格さの問題ではなく、構造的な問題である。`go test` も `cargo bench` も `pytest -k` も持たない状態で、本番コードと等価な品質のものを世に出そうとしているからだ。コードに対しては当然備わっている「テスト可能性」「ベンチマーク可能性」「lint 可能性」が、Skill 開発の側にはまだ備わっていない。
 
 本記事では、その空白を埋める Microsoft 製の OSS、**Waza** (技 ── Japanese for "skill/technique") を扱う。Go 1 バイナリで、Skill の scaffold・対話的改善ループ・モデル横断評価・トークン予算検査・A/B 効果測定・CI ゲートまで、Skill 開発の "工程" を全部 1 本にまとめている。
 
@@ -30,13 +30,13 @@ Skill 開発の現場で生じている痛みを、4 つに分解する。Waza �
 
 ### 1. 規約準拠の検証が属人化している
 
-`SKILL.md` には事実上の規約が存在する。「`description` は何文字以上であるべきか」「`USE FOR:` セクションを書くべきか」「動詞句で書き始めるべきか、名詞句で書き始めるべきか」── これらは `microsoft/skills` のコントリビューションガイドで言語化されている。だが、その規約が満たされているかを **コード化された rubric** として走らせる手段が、長らく存在しなかった。
+`SKILL.md` には事実上の規約が存在する。「`description` は何文字以上であるべきか」「`USE FOR:` セクションを書くべきか」「動詞句で書き始めるべきか、名詞句で書き始めるべきか」── これらは `microsoft/skills` のコントリビューションガイドで言語化されている。だが、その規約が満たされているかを **機械可読な採点基準** として走らせる手段が、長らく存在しなかった。
 
 結果、レビュアーは PR ごとに `SKILL.md` を読み下して「ここが基準に達していない」と毎回コメントを残すことになる。同じ skill でも、レビュアーごとに「Low と判定するか Medium と判定するか」が揺れる。
 
 Skill 作者の側から見ても、「自分の skill が High 水準なのか Medium 水準なのか、PR を出すまで分からない」という不安がある。これが Skill 作者の参入障壁になる。
 
-Waza はこの問題に対して、`Sensei` という rubric ベースの compliance scorer を内蔵し、`Low / Medium / Medium-High / High` の 4 段階で機械的に採点する仕組みで答える。
+Waza はこの問題に対して、`Sensei` という採点基準に基づく compliance scorer を内蔵し、`Low / Medium / Medium-High / High` の 4 段階で機械的に採点する仕組みで答える。
 
 ### 2. トリガー精度のテストが体系化されていない
 
@@ -46,7 +46,7 @@ Skill には固有の難しさがある。**起動条件 (trigger) のテスト*
 
 ところが既存の評価フレームワーク (OpenAI Evals, LangChain の評価ツール群など) は基本的に「呼ばれた前提でのアウトプット品質」を測る設計になっており、「そもそも呼ばれるべきプロンプトで呼ばれているか」「呼ばれてはいけないプロンプトでは黙っているか」を構造的に検証する仕組みが弱い。
 
-Skill 開発者は、結局のところ `microsoft/skills` の主 Skill だけでなく、近接する複数の Skill との競合関係を意識して書かないといけない。それを毎回手動で「いろんなプロンプトを Claude Code に投げて、別の skill に取られるか確認する」のは持続不能である。
+Skill 開発者は、結局のところ `microsoft/skills` の主 Skill だけでなく、近接する複数の Skill との競合関係を意識して書かないといけない。それを毎回手動で「Claude Code に多様な表現のプロンプトを投げ、自分の skill が想定どおり活性化するか、競合する別の skill が代わりに選ばれてしまわないかを 1 件ずつ目視確認する」のは持続不能である。
 
 Waza はこの問題に対して、`trigger_tests.yaml` という専用の DSL と、`trigger` および `skill_invocation` という活性化テスト専用のグレーダーで答える。
 
@@ -160,7 +160,7 @@ graph LR
   Check -.fix.-> Dev
 ```
 
-特徴は **`waza dev` を中心とする iterate ループ** である。`waza run` で失敗したら `waza dev` に戻って `SKILL.md` を改善し、再び `waza run` で確認する。コードと同様の TDD-like なリズムが、Skill にも持ち込まれている。
+特徴は **`waza dev` を中心とする反復ループ** である。`waza run` で失敗したら `waza dev` に戻って `SKILL.md` を改善し、再び `waza run` で確認する。コードと同様の TDD 的なリズムが、Skill にも持ち込まれている。
 
 ### 5. Waza ではないもの
 
@@ -175,7 +175,7 @@ Waza を初見で誤解しがちな概念と区別しておく。
 
 ## How ── 具体的にどう使うか
 
-ここからは手を動かす。`microsoft/skills` の代表的な skill である `code-explainer` を題材にして、個人 → チーム → 組織 の順で 7 つのユースケースを見ていく。
+ここからは手を動かす。`microsoft/skills` の代表的な skill である `code-explainer` を題材にして、7 つのユースケースを見ていく。各ユースケースには「誰の課題を解くか」に基づき **個人** (skill 作者ひとりがローカル完結で扱う)、**チーム** (skill 群を共有する複数人が gating 基準として使う)、**組織** (複数チームを横断する CI/CD・ガバナンス) の 3 ラベルを付けてある。境界にまたがるものは「個人/チーム」のように斜線で併記し、並び順は **個人 → チーム → 組織** で読者の関心が広がる方向に並べた。
 
 ### Phase 0: インストールと初期化
 
@@ -215,14 +215,13 @@ my-skills/
 
 ```bash
 waza new skill code-explainer
-waza dev evals/code-explainer/eval.yaml \
-  --context-dir evals/code-explainer/fixtures \
-  --model claude-sonnet-4-20250514
+# skills/code-explainer/SKILL.md を編集した上で
+waza dev code-explainer --target medium-high
 ```
 
 `waza dev` は次の手順を回す:
 
-1. 現在の `SKILL.md` を読み、Sensei rubric で採点
+1. 現在の `SKILL.md` を読み、Sensei の採点基準で評価
 2. `Low / Medium / Medium-High / High` の判定とともに、3〜5 個の具体的な改善提案を表示
 3. ユーザに「修正したから再採点して」と促す
 4. 再採点し、目標スコアに達するまで繰り返す
@@ -240,7 +239,7 @@ Sensei のスコア定義は次の通り。
 
 #### 押さえておきたい挙動
 
-- `--auto` フラグを付けると、人間の修正を待たずに LLM が修正提案そのものを書き換える "agentic" モードに切り替わる。ただし `SKILL.md` の語彙は author の判断を反映すべき場面が多いので、初学のうちは手動修正の方が学びになる。
+- `--auto` フラグを付けると、人間の修正を待たずに LLM が修正提案そのものを書き換える自律実行モードに切り替わる。ただし `SKILL.md` の語彙は author の判断を反映すべき場面が多いので、初学のうちは手動修正の方が学びになる。
 - Sensei は frontmatter (yaml) の構造と本文の構造の両方を見る。`description` が長くても `USE FOR:` セクションが見出しとして存在しないと Medium-High に上がらない。
 - 改善提案は一般論ではなく、現在の `SKILL.md` 本文に対する具体提案として返る (例: 「現在の `description` は "Explains code." と短すぎる。`USE FOR:` セクションで具体的な発火条件 3 件を列挙すべき。テンプレート: ...」)。
 
@@ -288,8 +287,8 @@ expected:
 
 #### 押さえておきたい挙動
 
-- 録画は 1 回の実行に対して行われる。確率的揺らぎを吸収したい場合は、後から `trials: 3` 等を eval.yaml に追加する。
-- 推論された validator が厳しすぎる (output の言い回しを literal にチェックしている等) ことはよくあるので、`output_contains` を `regex_match` に置き換えたり、`prompt` grader (LLM-as-judge) で意味的に評価するなどの調整を必ず加える。
+- `from-prompt` が記録するのは 1 回の実行分のみである。確率的揺らぎを吸収したい場合は、後から `trials: 3` 等を eval.yaml に追加する。
+- 推論された validator が厳しすぎる (output の言い回しを文字どおりに照合している等) ことはよくあるので、`output_contains` を `regex_match` に置き換えたり、`prompt` grader (LLM-as-judge) で意味的に評価するなどの調整を必ず加える。
 - `--overwrite` を指定しない限り既存ファイルを上書きしないため、誤って task を潰すことを防いでくれる。
 
 ### ユースケース ③: 個人/チーム ── eval を走らせて挙動を観察する
@@ -353,7 +352,7 @@ waza run evals/code-explainer/eval.yaml \
 
 #### 押さえておきたい挙動
 
-- 標準の `executor` は `mock` (echo 的な決定動作) で、API キー無しで動く。CI の最低限の health check (YAML 構文、grader の妥当性、ファイル参照の整合) はここで完結する。
+- 標準の `executor` は `mock` (入力をそのままエコーバックする決定動作) で、API キー無しで動く。CI の最低限の health check (YAML 構文、グレーダーの妥当性、ファイル参照の整合) はここで完結する。
 - 実モデルを叩きたい場合は `--executor copilot-sdk --model <model-name>` を指定する。バイナリには Copilot SDK が同梱されているので、認証さえ通っていれば追加インストールは要らない。
 - `--parallel --workers 8` でタスクの並列化が効く。50 タスクを超えるあたりから体感が変わる。
 - `--cache --cache-dir .waza-cache` を使うと、同一 prompt + 同一モデルの結果が `.waza-cache` に蓄積され、2 回目以降は API を叩かない。eval.yaml だけ書き換えてグレーダーの閾値を変える、みたいなイテレーションがほぼ無料になる。
@@ -369,7 +368,7 @@ Waza の評価は、ひとつの Task に対して **複数のグレーダーを
 | 実行プロセス | `behavior`, `tool_constraint` | tool 呼び出し回数、トークン量、duration、許可/禁止 tool |
 | 実行系列 | `action_sequence`, `skill_invocation` | tool 呼び出し順序、依存 skill の起動順序 |
 | 活性化 | `trigger` | プロンプトと skill の関連度 (heuristic) |
-| LLM 判定 | `prompt` | LLM-as-judge による rubric 採点 |
+| LLM 判定 | `prompt` | LLM-as-judge による採点基準評価 |
 | 外部ロジック | `program` | 外部スクリプトで任意の判定 |
 
 ひとつの `eval.yaml` で複数を組み合わせると、こんな多面評価ができる。
@@ -435,13 +434,13 @@ tasks:
   - "tasks/*.yaml"
 ```
 
-`prompt` grader の挙動は少し独特なので補足しておく。これは LLM-as-judge を実装する際の常套手段である「ツール呼び出しによる判定の構造化」を採用していて、judge model に `set_waza_grade_pass` / `set_waza_grade_fail` という 2 つの偽 tool を差し込む。Judge model は rubric の各項目について、合致なら pass、不合致なら fail をツール呼び出しとして発行する。最終スコアは `passes / (passes + failures)` ── つまり 3 criterion なら、3 / 3, 2 / 3, 1 / 3, 0 / 3 のいずれかになる。LLM-as-judge を「自由記述で点数を出させる」より、信頼性が高い実装になっている。
+`prompt` grader の挙動は少し独特なので補足しておく。これは LLM-as-judge を実装する際の常套手段である「ツール呼び出しによる判定の構造化」を採用していて、judge model に `set_waza_grade_pass` / `set_waza_grade_fail` という 2 つの判定伝達専用 tool を差し込む。これらは外部に副作用を起こす本物の tool ではなく、judge model が「合格」「不合格」を構造化されたシグナルとして Waza 側に渡すためだけに用意されたインターフェースである。Judge model は採点基準の各項目について、合致なら `set_waza_grade_pass` を、不合致なら `set_waza_grade_fail` を呼ぶ。最終スコアは `passes / (passes + failures)` ── つまり 3 項目なら、3 / 3, 2 / 3, 1 / 3, 0 / 3 のいずれかになる。LLM-as-judge を「自由記述で点数を出させる」より、信頼性が高い実装になっている。
 
 #### 押さえておきたい挙動
 
 - すべてのグレーダーの出力は `[0.0, 1.0]` のスコア + `passed` (bool) + `feedback` (人間可読) + `details` (追加メタ) という共通の形に正規化されている。後続の集計が楽になる。
-- `behavior` グレーダーは `forbidden_tools: ["bash"]` 等を指定でき、安全境界の表明として強力に機能する。「この skill は file 操作だけして bash は呼ばないはず」みたいな不変条件を CI で保てる。
-- `program` グレーダーは標準入力に assistant 出力を流し、ワークスペースのパスを `WAZA_WORKSPACE_DIR` 環境変数で渡してくれる。Terraform validate、go vet、ESLint など、ドメイン特有の静的解析をそのまま grader として組み込める。
+- `behavior` grader は `forbidden_tools: ["bash"]` 等を指定でき、安全境界の表明として強力に機能する。「この skill は file 操作だけして bash は呼ばないはず」みたいな不変条件を CI で保てる。
+- `program` grader は標準入力に assistant 出力を流し、ワークスペースのパスを `WAZA_WORKSPACE_DIR` 環境変数で渡してくれる。Terraform validate、go vet、ESLint など、ドメイン特有の静的解析をそのままグレーダーとして組み込める。
 
 ### ユースケース ⑤: チーム ── トリガー精度を専用 DSL で固定する
 
@@ -478,9 +477,9 @@ should_not_trigger_prompts:
     confidence: high
 ```
 
-このファイルは `eval.yaml` と同じディレクトリに置く規約になっており、`waza run` 実行時に Waza が `eval.yaml` の隣を探索して `trigger_tests.yaml` を発見し、本体評価のあとに続けて trigger 評価フェーズを実行する。動作モードは 2 系統:
+このファイルを `eval.yaml` と同じディレクトリに置いておくと、`waza run` がそれを検出し、本体評価のあとに続けて trigger 評価フェーズを実行する。動作モードは 2 系統:
 
-1. **heuristic mode (mock executor)** ── `trigger` grader が `SKILL.md` から keyword/phrase を抽出し、各 prompt との関連度を算出する。API 呼び出し無し、決定的、速い。`SKILL.md` を書き換えるたびに走らせて regression を防ぐのに使う。
+1. **heuristic mode (mock executor)** ── `trigger` grader は LLM を一切使わず、`SKILL.md` の skill 名・`description`・本文の見出し・`USE FOR:` フレーズをトークナイズしてキーワード集合と候補フレーズに展開し、(a) prompt 側のトークンとキーワード集合の重複度、(b) prompt と `USE FOR:` フレーズの最良フレーズマッチスコア、の **高い方** を最終スコア (0.0〜1.0) とする。要するに語彙ベースの古典的な情報検索的スコアリングである。API 呼び出し無し、決定的、速い。`SKILL.md` を書き換えるたびに走らせて regression を防ぐのに使う。
 2. **LLM mode (copilot-sdk executor)** ── 実モデルにプロンプトを投げて、skill_invocation イベントを観測する。`CancelOnSkillInvocation: true` を使って、Skill が発火した瞬間にキャンセルして API コストを抑える設計。Should-not-trigger をテストするのに重要。
 
 `confidence` のラベルは結果集計時の重み付けに使われる。`high` の prompt で失敗するのと `medium` の prompt で失敗するのとでは、最終スコアへの影響が違う。
@@ -488,7 +487,7 @@ should_not_trigger_prompts:
 #### 押さえておきたい挙動
 
 - `should_not_trigger_prompts` の方が往々にして難しい。`SKILL.md` の `DO NOT USE FOR:` セクションを充実させると trigger 精度が大きく上がる。
-- `should_trigger_prompts` を増やすときは、表現バリエーション (直接的 / 暗示的 / 文脈依存) を意図的に散らす。「Explain」「Walk me through」「Break down」「Talk me through」など、同義表現に対する頑健性をテストできる。
+- `should_trigger_prompts` は **テストプロンプト集合** である。ここに「Explain this」「Walk me through」「Break down」「Talk me through」のような直接的表現・暗示的表現・文脈依存表現を意図的に散らして並べておくと、`SKILL.md` の `description` や `USE FOR:` セクションが「同じ意味の表現の揺れ」に対してどこまで活性化を拾えるかを網羅的にテストできる。skill 側ではなくテスト入力側を多様化することで、SKILL.md の文面の穴 (例: `Explain` には反応するが `Walk me through` には反応しない、など) が浮き彫りになる。
 - LLM mode を CI で常時走らせると課金が嵩むので、heuristic mode を PR の必須ゲートに、LLM mode を nightly job に回す運用が現実的である。
 
 ### ユースケース ⑥: チーム/組織 ── モデル横断比較で routing 戦略を決める
@@ -534,8 +533,8 @@ Model Comparison Report
 
 #### 押さえておきたい挙動
 
-- `--format detailed` を付けるとタスク単位の差分まで出る (`gpt-4o は task explain-fib に失敗、Sonnet は成功`)。Skill の弱点が「特定のタスク種別に対する特定モデルの reliability」として浮かび上がる。
-- `--output comparison.json` で比較結果を JSON 出力できる。これを CI で更に lint にかけたり、社内 dashboard に流したりという統合がやりやすい。
+- `--format json` または `-o comparison.json` を指定すると、サマリだけでなくタスク単位の差分まで JSON で取り出せる (`gpt-4o は task explain-fib に失敗、Sonnet は成功` 等)。Skill の弱点が「特定のタスク種別に対する特定モデルの信頼性」として浮かび上がる。
+- 出力 JSON を CI で更に lint にかけたり、社内 dashboard に流したりという統合がやりやすい。`--format` のデフォルトは `table` で、ターミナル上での比較に最適化されている。
 - 3 モデル以上の同時比較も可能。`waza run --model gpt-4o --model claude-sonnet-4 --model gpt-4-turbo eval.yaml` のように 1 回の `run` で複数モデルを並列実行することもできる。
 
 ### ユースケース ⑦: 組織 ── CI ゲートと A/B 効果測定
@@ -675,6 +674,8 @@ JSON 出力には `skill_impact` ブロックがタスク単位で含まれる�
 }
 ```
 
+`delta` は `pass_rate_with_skills − pass_rate_baseline` の絶対差分 (−1.0 〜 +1.0、上の例では Skill 有りで全合格・Skill 無しで全失敗のため +1.0)。`percent_change` は同じ差分を百分率にした値だが、baseline が 0 のときはゼロ除算を避けて `null` になる。CI ではこれら 4 フィールドのいずれをゲートに使うかをチームで決めることになる (例: `delta >= 0.2` 未満を回帰扱いにする、など)。
+
 `--baseline` を付けたときの exit code セマンティクスは変わる:
 
 | 状態 | 終了コード |
@@ -708,7 +709,6 @@ CI で生成された `results.json` を `--results-dir` 配下に蓄積する�
 
 - CI で `--executor copilot-sdk` を使うと、PR ごとに実モデル課金が発生する。`mock` で済む checks (compliance scoring, token budgets, YAML syntax) は PR 必須に、`copilot-sdk` を使う本評価は nightly や手動 trigger に振り分けるのが現実的。
 - Azure DevOps では JUnit reporter (`--reporter junit:test-results.xml`) を併用すると、`PublishTestResults@2` task でテスト結果がパイプライン UI に表示される。
-- `--baseline` は実行時間が単純に 2 倍になる。CI 全実行に組み込むと痛いので、main マージ後の post-merge job として運用するのが妥当。
 
 ---
 
